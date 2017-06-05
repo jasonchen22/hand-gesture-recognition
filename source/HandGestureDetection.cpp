@@ -4,6 +4,7 @@
 #include <cmath>
 #include <time.h>
 #include <fstream>
+#include <Windows.h>
 
 using namespace cv;
 using namespace std;
@@ -46,6 +47,7 @@ int main(int argc, char **argv)
 	nW = (int)cap.get(CAP_PROP_FRAME_WIDTH);
 	nH = (int)cap.get(CAP_PROP_FRAME_HEIGHT);
 	rtHand = Rect(nW / 2, 0, 320, 480);
+	int wblock = 240 / 3;
 
 	namedWindow("video", WINDOW_NORMAL);
 	resizeWindow("video", nW, nH);
@@ -58,6 +60,9 @@ int main(int argc, char **argv)
 		flip(frame, frame, 1);
 
 		rectangle(frame, rtHand, Scalar(0, 0, 255));
+		rectangle(frame, Rect(rtHand.x, rtHand.y + wblock, wblock * 3, wblock), Scalar(0, 0, 255));
+		rectangle(frame, Rect(rtHand.x + wblock, rtHand.y, wblock, wblock * 3), Scalar(0, 0, 255));
+		rectangle(frame, Rect(rtHand.x, rtHand.y, wblock * 3, wblock * 3), Scalar(0, 0, 255));
 
 		// user interface
 		char key = waitKey(25);
@@ -109,6 +114,18 @@ int main(int argc, char **argv)
 			continue;
 		}
 
+		POINT cur;
+		GetCursorPos(&cur);
+		if (igesture == 1) {
+			circle(frame, Point(rtHand.x + indexpos.x, rtHand.y + indexpos.y), 3, Scalar(255, 0, 0), -1);
+			int mx = indexpos.x / wblock;
+			int my = indexpos.y / wblock;
+			if (mx == 0) cur.x -= 3;
+			if (mx == 2) cur.x += 3;
+			if (my == 0) cur.y -= 3;
+			if (my == 2) cur.y += 3;
+			SetCursorPos(cur.x, cur.y);
+		}
 		putText(frame, gesturename[igesture], Point(10, 50),
 			FONT_HERSHEY_PLAIN, 1.5, Scalar(0, 0, 255), 2, LINE_8);
 		display_result("video", frame);
@@ -303,7 +320,10 @@ int detect_gesture(Mat image, vector<Point> handcontour, Point& indexpos)
 		len = sqrt(len);
 
 		if (pt1.x < rtfist.x + rtfist.width / 2) {
-			if (len * 100 / rtfist.width > 60) return 1; // index finger
+			if (len * 100 / rtfist.width > 60) {
+				indexpos = pt;
+				return 1; // index finger
+			}
 			return 3; // thumb
 		}
 
@@ -336,40 +356,4 @@ double angle_2vectors(Point2f vec1, Point2f vec2)
 	al = al < 180 ? al : 360 - al;
 
 	return al;
-}
-double cross_correlation(Mat img1, Mat img2, bool isbinary)
-{
-	double corr;
-
-	Scalar img1_avg, img2_avg;
-	if (isbinary) {
-		// in the case with binary image
-		img1_avg = Scalar(128, 0, 0);
-		img2_avg = Scalar(128, 0, 0);
-	}
-	else {
-		// in the case with gray image
-		img1_avg = mean(img1);
-		img2_avg = mean(img2);
-	}
-
-	double sum_img1_img2 = 0;
-	double sum_img1_2 = 0;
-	double sum_img2_2 = 0;
-
-	for (int m = 0; m<img1.rows; ++m)
-	{
-		for (int n = 0; n<img1.cols; ++n)
-		{
-			sum_img1_img2 += (img1.at<uchar>(m, n) - img1_avg.val[0])*(img2.at<uchar>(m, n) - img2_avg.val[0]);
-			sum_img1_2 += (img1.at<uchar>(m, n) - img1_avg.val[0])*(img1.at<uchar>(m, n) - img1_avg.val[0]);
-			sum_img2_2 += (img2.at<uchar>(m, n) - img2_avg.val[0])*(img2.at<uchar>(m, n) - img2_avg.val[0]);
-		}
-	}
-
-	if (sum_img1_2 == 0 || sum_img2_2 == 0) return -1;
-
-	corr = sum_img1_img2 / sqrt(sum_img1_2*sum_img2_2);
-
-	return corr;
 }
