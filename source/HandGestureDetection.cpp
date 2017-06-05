@@ -41,10 +41,11 @@ int main(int argc, char **argv)
 	Rect rtHand;
 	Point indexpos;
 	vector<Point> handcontour;
+	string gesturename[] = { "nothing", "cursor", "scroll up", "scroll down", "right click", "double click" };
 	
 	nW = (int)cap.get(CAP_PROP_FRAME_WIDTH);
 	nH = (int)cap.get(CAP_PROP_FRAME_HEIGHT);
-	rtHand = Rect(nW / 2, 0, nW / 2, nH);
+	rtHand = Rect(nW / 2, 0, 320, 480);
 
 	namedWindow("video", WINDOW_NORMAL);
 	resizeWindow("video", nW, nH);
@@ -103,8 +104,13 @@ int main(int argc, char **argv)
 		}
 
 		int igesture = detect_gesture(image, handcontour, indexpos);
+		if (igesture < 0) {
+			display_result("video", frame);
+			continue;
+		}
 
-
+		putText(frame, gesturename[igesture], Point(10, 50),
+			FONT_HERSHEY_PLAIN, 1.5, Scalar(0, 0, 255), 2, LINE_8);
 		display_result("video", frame);
 	
 	}
@@ -125,11 +131,14 @@ bool detect_hand(Mat image, Mat background, vector<Point>& handcontour)
 
 	absdiff(image, background, bwim);
 	dilate(bwim, bwim, kernel);
-	imshow("Mask1", bwim);
+	//imshow("Mask1", bwim);
 
 	threshold(bwim, bwim, 20, 255, CV_8U);
 
 	morphologyEx(bwim, bwim, MORPH_CLOSE, kernel);
+	kernel = getStructuringElement(MORPH_ELLIPSE, Size(10, 10));
+	erode(bwim, bwim, kernel);
+	dilate(bwim, bwim, kernel);
 
 	Rect rt;
 	vector<vector<Point> > contours;
@@ -153,9 +162,9 @@ bool detect_hand(Mat image, Mat background, vector<Point>& handcontour)
 	handcontour = contours[k];
 
 	// for debug
-	Mat ima = Mat::zeros(image.size(), CV_8UC1);
-	drawContours(ima, contours, k, Scalar(255), -1);
-	imshow("Mask", ima);
+	//Mat ima = Mat::zeros(image.size(), CV_8UC1);
+	//drawContours(ima, contours, k, Scalar(255), -1);
+	//imshow("Mask", ima);
 	//char str[256];
 	//sprintf(str, "5\\%d.jpg", ncount);
 	//imwrite(str, ima);
@@ -170,60 +179,147 @@ int detect_gesture(Mat image, vector<Point> handcontour, Point& indexpos)
 	int i, i1, i2;
 	Point vec1, vec2, pt, pt1, pt2;
 	vector<Point> approxpoly;
-	
+	int dthr = 50;
+
+	vector<Point> tmpcontour;
+	int sc = 2;
+	Mat bwim = Mat::zeros(image.size() / sc, CV_8UC1);
+	for (i = 0; i < handcontour.size(); i++) {
+		tmpcontour.push_back(handcontour[i] / sc);
+	}
+	Mat kernel = getStructuringElement(MORPH_ELLIPSE, Size(35, 35));
+	drawContours(bwim, vector<vector<Point> >(1, tmpcontour), 0, Scalar(255), -1);
+	erode(bwim, bwim, kernel); dilate(bwim, bwim, kernel);
+	vector<vector<Point> > contours;
+	findContours(bwim, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+	if (contours.size() == 0) return -1;
+	RotatedRect rotrt = minAreaRect(contours[0]);
+	int ww = min(rotrt.size.width, rotrt.size.height);
+	Rect rt = boundingRect(bwim);
+	Rect rtfist = Rect(0, 0, ww, ww);
+	for (i = 0; i < rt.height; i++) {
+		if (bwim.at<uchar>(rt.y + i, rt.x) > 0) {
+			rtfist.x = rt.x;
+			break;
+		}
+		else if (bwim.at<uchar>(rt.y + i, rt.x + rt.width - 1) > 0) {
+			rtfist.x = rt.x + rt.width - ww;
+			break;
+		}
+	}
+
+	ww *= sc;
+	rtfist.x *= sc; rtfist.y *= sc; rtfist.width *= sc; rtfist.height *= sc;
+
+	//imshow("aaa", bwim);
+
 	approxPolyDP(handcontour, approxpoly, 30, true);
 
-	vector<int> yy(3), ind(3);
-	yy[0] = image.rows; ind[0] = -1;
-	yy[1] = image.rows; ind[1] = -1;
-	yy[2] = image.rows; ind[2] = -1;
+	vector<int> yy(3), ind(3), ind1(3);
+	yy[0] = image.rows + 1; ind[0] = -1;
+	yy[1] = image.rows + 1; ind[1] = -1;
+	yy[2] = image.rows + 1; ind[2] = -1;
 	for (i = 0; i < approxpoly.size(); i++) {
-		if (approxpoly[0].y < yy[0]) {
+		if (approxpoly[i].y < yy[0]) {
 			yy[2] = yy[1]; ind[2] = ind[1];
 			yy[1] = yy[0]; ind[1] = ind[0];
-			yy[0] = approxpoly[0].y; ind[0] = i;
+			yy[0] = approxpoly[i].y; ind[0] = i;
 		}
-		else if (approxpoly[0].y < yy[1]) {
+		else if (approxpoly[i].y < yy[1]) {
 			yy[2] = yy[1]; ind[2] = ind[1];
-			yy[1] = approxpoly[0].y; ind[1] = i;
+			yy[1] = approxpoly[i].y; ind[1] = i;
 		}
-		else if (approxpoly[0].y < yy[2]) {
-			yy[2] = approxpoly[0].y; ind[2] = i;
+		else if (approxpoly[i].y < yy[2]) {
+			yy[2] = approxpoly[i].y; ind[2] = i;
 		}
 	}
 	if (ind[0] == -1) return -1;
 
-	int dthr = 30;
+	ind1 = ind;
+	int x = image.cols + 1;
 	for (i = 0; i < 3; i++) {
+		if (ind1[i] < 0) break;
+		if (approxpoly[ind1[i]].x < x) {
+			x = approxpoly[ind1[i]].x;
+			i1 = i;
+		}
+	}
+	ind[0] = ind1[i1];
+	ind1.erase(ind1.begin() + i1);
+	if (ind1[1] >= 0 && 
+		approxpoly[ind1[0]].x < approxpoly[ind1[1]].x) {
+		ind[1] = ind1[0]; ind[2] = ind1[1];
+	}
+	else if (ind1[0] >= 0 && ind1[1] >= 0) {
+		ind[1] = ind1[1]; ind[2] = ind1[0];
+	}
+
+	vector<vector<int> > fnginds;
+	vector<int> fngind;
+	for (i = 0; i < 3; i++) {
+		if (ind[i] < 0) break;
 		pt = approxpoly[ind[i]];
-		i1 = ind[i] - 1;
-		if (i1 < 0) i1 = approxpoly.size() - 1;
+		i1 = ind[i] - 1; if (i1 < 0) i1 = approxpoly.size() - 1;
 		pt1 = approxpoly[i1];
 		vec1 = pt1 - pt;
 		if (vec1.x*vec1.x + vec1.y*vec1.y < dthr*dthr) {
-			i1--; pt1 = approxpoly[i1];
+			i1--; if (i1 < 0) i1 = approxpoly.size() - 1;
+			pt1 = approxpoly[i1];
 			vec1 = pt1 - pt;
 			if (vec1.x*vec1.x + vec1.y*vec1.y < dthr*dthr) continue;
 		}
 
-		i2 = ind[i] + 1;
-		if (i2 >= approxpoly.size()) i2 = 0;
+		i2 = ind[i] + 1; if (i2 >= approxpoly.size()) i2 = 0;
 		pt2 = approxpoly[i2];
 		vec2 = pt2 - pt;
 		if (vec2.x*vec2.x + vec2.y*vec2.y < dthr*dthr) {
-			i2++; pt2 = approxpoly[i2];
+			i2++; if (i2 >= approxpoly.size()) i2 = 0;
+			pt2 = approxpoly[i2];
 			vec2 = pt2 - pt;
 			if (vec2.x*vec2.x + vec2.y*vec2.y < dthr*dthr) continue;
 		}
 
 		double al = angle_2vectors(vec1, vec2);
-		if (al > 45) continue;
+		if (al > 55) continue;
+
+		fngind = vector<int>(3);
+		fngind[0] = i2; fngind[1] = ind[i]; fngind[2] = i1;
+		fnginds.push_back(fngind);
 	}
 
-	polylines(image, approxpoly, true, Scalar(128));
-	imshow("approx", image);
+	int num = fnginds.size();
+	//if (num > 2) return -1;
 
-	return true;
+	//polylines(image, approxpoly, true, Scalar(128));
+	//imshow("approx", image);
+
+	if (num == 0) return 0; // fist
+	else if (num == 1) {
+		pt1 = approxpoly[fnginds[0][0]];
+		pt = approxpoly[fnginds[0][1]];
+		pt2 = approxpoly[fnginds[0][2]];
+		vec1 = pt1 - pt; vec2 = pt2 - pt;
+		double len = min(vec1.x*vec1.x + vec1.y*vec1.y, vec2.x*vec2.x + vec2.y*vec2.y);
+		len = sqrt(len);
+
+		if (pt1.x < rtfist.x + rtfist.width / 2) {
+			if (len * 100 / rtfist.width > 60) return 1; // index finger
+			return 3; // thumb
+		}
+
+		if (pt.x > rtfist.x + rtfist.width * 2 / 3) return 2; // little finger
+	}
+	else if (num >= 2) {
+		vec1 = approxpoly[fnginds[0][2]] - approxpoly[fnginds[0][1]];
+		vec2 = approxpoly[fnginds[1][0]] - approxpoly[fnginds[1][1]];
+		double l1 = sqrt(vec1.x*vec1.x + vec1.y*vec1.y);
+		double l2 = sqrt(vec2.x*vec2.x + vec2.y*vec2.y);
+
+		if (l1*100 / l2 < 65) return 4; // right click
+		else return 5; // double click
+	}
+
+	return -1;
 }
 
 void display_result(String wndname, Mat image)
